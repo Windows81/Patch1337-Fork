@@ -1,10 +1,13 @@
 #!/usr/bin/env python
 """Patches files based on 1337 patch files."""
 
+import dataclasses
+import functools
+import io
+import pefile
 import binascii
 import shutil
 import sys
-from datetime import timedelta
 from pathlib import Path
 
 import click
@@ -40,15 +43,24 @@ __version__ = "0.5.1"
 @click.option(
     "-o",
     "--offset",
+    type=click.UNPROCESSED,
+    callback=lambda ctx, param, value: tuple(
+        int(v, base=16) if isinstance(v, str) else None for v in value
+    ),
     required=False,
     multiple=True,
     default=[
-        True,
-        True,
+        0xC00,
+        0xC00,
     ],
-    help="Apply x64dbg offset (True by default).",
+    help="Manually apply offset in hex (calculates offset from RVA tables if not provided by default).",
 )
-@click.option("-v", "--verbose", count=True, default=None, help="Increase verbosity of output.")
+@click.option(
+    "-v",
+    "--verbose",
+    is_flag=True,
+    help="Increase verbosity of output.",
+)
 @click.pass_context
 def main(context: click.Context, **_) -> None:
     """Patches files based on 1337 patch files."""
@@ -77,99 +89,181 @@ def check_patch(patch_file: str) -> bool:
     """Check validity of patch file."""
     with Path(patch_file).open() as header:
         if not header.readline().startswith(">"):
-            logger.error("{} is not a valid .1337 patch file", Path(patch_file).name)
+            logger.error(
+                "{} is not a valid .1337 patch file",
+                Path(patch_file).name,
+            )
             return False
-        logger.debug("{} is a valid .1337 patch file", Path(patch_file).name)
+        logger.debug(
+            "{} is a valid .1337 patch file",
+            Path(patch_file).name,
+        )
         return True
+
+
+@functools.cache
+def get_pe_sections(target: str) -> list[tuple[int, int, int]]:
+    """Get the sections of a PE file."""
+    pe = pefile.PE(target, fast_load=True)
+    return [
+        (
+            section.VirtualAddress,
+            section.VirtualAddress + section.Misc_VirtualSize,
+            section.VirtualAddress - section.PointerToRawData,
+        )
+        for section in pe.sections
+    ]
+
+
+def rva_to_file_offset(target: str, rva: int) -> int:
+    """Find the appropriate section for the given RVA"""
+    for (start, end, offset) in get_pe_sections(target):
+        if start <= rva < end:
+            return rva - offset
+    raise ValueError(f"RVA {rva} not found in any section of the PE file.")
 
 
 def backup_file(target: str) -> bool:
     """Backup original target file."""
-    overwrite_backup = True
-    backup_file = target + ".BAK"
-    if Path(backup_file).exists():
-        target_mod = Path(target).stat().st_mtime
-        backup_mod = Path(backup_file).stat().st_mtime
-        if backup_mod > (target_mod - timedelta(days=7).total_seconds()):
-            overwrite_backup = False
-            overwrite_check = input("Backup file exists, would you like to overwrite? (y/n/X): ")
-            if overwrite_check.lower() == "y":
-                overwrite_backup = True
-            if not overwrite_backup and overwrite_check.lower() != "n":
-                return False
-    if overwrite_backup:
-        shutil.copy(Path(target), Path(backup_file))
-        logger.info("Created backup of {}", Path(target).name)
+    backup_path = target + ".BAK"
+
+    if Path(backup_path).exists():
+        check = input(
+            "Backup file exists, would you like to overwrite? (y/n/X): ",
+        )
+        if check.lower() == "y":
+            pass
+        elif check.lower() == "n":
+            return True
+        else:
+            return False
+
+    shutil.copy(Path(target), Path(backup_path))
+    logger.info("Created backup of {}", Path(target).name)
     return True
 
 
-def patcher(patch_file: str, target: str, offset: str) -> None:
-    """Patch file."""
-    errors = False
-    if not Path(patch_file).exists() or not Path(target).exists():
-        logger.error("{} or {} no longer exist", patch_file, target)
+@dataclasses.dataclass
+class patch_info:
+    loc: int = 0
+    fr: int = 0
+    to: int = 0
+
+
+def parse(line: str, target: str, manual_offset: int | None) -> patch_info:
+    """Parse a line from the patch file."""
+
+    (rva_str, patch_str) = line.strip().split(":")
+    (patch_from_str, patch_to_str) = patch_str.split("->")
+    rva_val = int(rva_str, base=16)
+
+    location = (
+        rva_val - manual_offset
+        if manual_offset is not None
+        else rva_to_file_offset(target, rva_val)
+    )
+    return patch_info(
+        loc=location,
+        fr=int(patch_from_str, base=16),
+        to=int(patch_to_str, base=16),
+    )
+
+
+def apply_patches(target_file: io.FileIO, patches: list[patch_info]) -> bool:
+    """Apply patches to the target file."""
+
+    is_normal_patch = True
+    is_reverse_patch = True
+    for patch in patches:
+        logger.debug(
+            "Patching 0x{:X} from {} to {}",
+            patch.loc,
+            patch.fr,
+            patch.to,
+        )
+        logger.debug(
+            "Checking patch at 0x{:X}",
+            patch.loc,
+        )
+        target_file.seek(patch.loc)
+        [unpatched_bit] = target_file.read(1)
+        if is_normal_patch and unpatched_bit != patch.fr:
+            is_normal_patch = False
+        if is_reverse_patch and unpatched_bit != patch.to:
+            is_reverse_patch = False
+
+        if is_normal_patch or is_reverse_patch:
+            continue
+
+        logger.error(
+            "Offset 0x{:X} was expected to be {} but was {} instead",
+            patch.loc,
+            patch.fr,
+            unpatched_bit,
+        )
+        return False
+
+    if is_reverse_patch:
+        check = input(
+            "All bits in the patch were already applied, would you like to reverse? (y/N): ",
+        )
+        if check.lower() != "y":
+            return False
+
+        for patch in patches:
+            v = patch.fr
+            target_file.seek(patch.loc)
+            target_file.write(bytes([v]))
+
+            logger.debug(
+                "0x{:X} has been unpatched correctly to {}",
+                patch.loc,
+                v,
+            )
+    else:
+        for patch in patches:
+            v = patch.to
+            target_file.seek(patch.loc)
+            target_file.write(bytes([v]))
+
+            logger.debug(
+                "0x{:X} has been patched correctly to {}",
+                patch.loc,
+                v,
+            )
+
+    return True
+
+
+def patcher(patch_path: str, target: str, manual_offset: int | None) -> None:
+    if not Path(patch_path).exists() or not Path(target).exists():
+        logger.error("{} or {} no longer exist", patch_path, target)
         return
-    if not check_patch(patch_file):
+    if not check_patch(patch_path):
         return
     if not backup_file(target):
         return
-    with Path(patch_file).open() as patch_file, Path(target).open(mode="r+b", buffering=0) as unpatched_file:
-        patch_lines = patch_file.readlines()
-        patch_target = str(patch_lines[0])[1:].strip().lower()
+
+    with Path(patch_path).open() as patch_file:
+        [first_line, *patch_lines] = patch_file.readlines()
+        patch_target = first_line[1:].strip().lower()
         target_filename = Path(target).name
-        if patch_target != target_filename.lower():
-            logger.error(
-                "The .1337 patch is not valid for the selected file ({}) but you selected ({})",
-                str(patch_lines[0])[1:].lower(),
-                target_filename,
-            )
-            return
-        offset = 0xC00 if offset else 0x0
-        for line in patch_lines[1:]:
-            if line:
-                tmp = line.strip().split(":")
-                location = hex(int(tmp[0], base=16) - int(offset))
-                patch = tmp[1].split("->")
-                logger.debug("Patch line: {}", line.strip())
-                logger.debug("Patching {} from {} to {}", "0x" + location[2:].upper(), patch[0], patch[1])
-                unpatched_file.seek(int(location, base=16))
-                unpatched_read = unpatched_file.read(1)
-                if unpatched_read == binascii.unhexlify(patch[0]):
-                    unpatched_file.seek(int(location, base=16))
-                    unpatched_file.write(binascii.unhexlify(patch[1]))
-                    logger.debug("Patched  {} from {} to {}", "0x" + location[2:].upper(), patch[0], patch[1])
-                else:
-                    logger.error(
-                        "Offset {} was expected to be {} but was {} instead",
-                        "0x" + location[2:].upper(),
-                        patch[0],
-                        unpatched_read,
-                    )
-                    errors = True
-                    break
-        if not errors:
-            for line in patch_lines[1:]:
-                if line:
-                    tmp = line.strip().split(":")
-                    location = hex(int(tmp[0], base=16) - int(offset))
-                    patch = tmp[1].split("->")
-                    logger.debug("Checking patch at {}", "0x" + location[2:].upper())
-                    unpatched_file.seek(int(location, base=16))
-                    patched_read = unpatched_file.read(1)
-                    if patched_read == binascii.unhexlify(patch[1]):
-                        logger.debug("{} has been patched correctly to {}", "0x" + location[2:].upper(), patch[1])
-                    else:
-                        logger.error(
-                            "{} was NOT patched correctly to {} it is currently {}",
-                            "0x" + location[2:].upper(),
-                            patch[1],
-                            patched_read,
-                        )
-                        if Path(backup_file).exists():
-                            shutil.copy(Path(target + ".BAK"), Path(target))
-                            logger.info("Replaced mispatched file with the backup.")
-                        break
-        logger.info("Patching complete on {}", target_filename)
+
+    if patch_target != target_filename.lower():
+        logger.error(
+            "The .1337 patch is not valid for the selected file ({}) but you selected ({})",
+            str(first_line)[1:].lower(),
+            target_filename,
+        )
+        return
+
+    patches = [
+        parse(line, target, manual_offset)
+        for line in patch_lines
+    ]
+
+    with Path(target).open(mode="r+b", buffering=0) as target_file:
+        apply_patches(target_file, patches)
 
 
 if __name__ == "__main__":
