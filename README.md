@@ -15,13 +15,13 @@ Cross-platform 1337 patcher in Python. Initially designed to be used for [nvidia
 Suggested to install via [pipx](https://pypa.github.io/pipx) with:
 
 ```bash
-pipx install git+https://github.com/Windows81/Patch1337.git
+pipx install git+https://github.com/Windows81/Patch1337-Fork.git
 ```
 
 or pip with:
 
 ```bash
-pip install git+https://github.com/Windows81/Patch1337.git
+pip install git+https://github.com/Windows81/Patch1337-Fork.git
 ```
 
 ### From repo
@@ -29,7 +29,7 @@ pip install git+https://github.com/Windows81/Patch1337.git
 Clone the repo with:
 
 ```bash
-git clone https://github.com/Windows81/Patch1337.git
+git clone https://github.com/Windows81/Patch1337-Fork.git
 cd ./patch1337
 ```
 
