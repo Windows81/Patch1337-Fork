@@ -56,7 +56,7 @@ def rva_to_file_offset(target: str, rva: int) -> int:
 
 def maybe_backup_file(target_path: Path) -> bool:
     '''Backup original target file.'''
-    backup_path = target_path.with_suffix('.BAK')
+    backup_path = target_path.with_name(target_path.name + '.BAK')
 
     if backup_path.exists():
         check = input(
