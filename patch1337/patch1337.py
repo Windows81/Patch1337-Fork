@@ -166,11 +166,17 @@ def apply_patches(target_file: io.FileIO, patches: list[patch_info], try_reverse
             assert False
 
 
-def patcher(patch_path_str: str, target_path_str: str, forward: bool = True, reverse: bool = False) -> bool:
+def patcher(
+    patch_path_str: str,
+    target_path_str: str,
+    try_normal: bool = True,
+    try_reverse: bool = False,
+    should_backup: bool = True,
+) -> bool:
     patch_path = Path(patch_path_str)
     target_path = Path(target_path_str)
 
-    if forward == False and reverse == False:
+    if try_normal == False and try_reverse == False:
         return True
 
     if not patch_path.exists() or not target_path.exists():
@@ -198,11 +204,11 @@ def patcher(patch_path_str: str, target_path_str: str, forward: bool = True, rev
         '%s is a valid .1337 patch file' % patch_path.name
     )
 
-    if not maybe_backup_file(target_path):
+    if should_backup and not maybe_backup_file(target_path):
         return False
 
-    reverse_patches = (forward == False and reverse == True)
-    try_reverse = (forward == True and reverse == True)
+    reverse_patches = (try_normal == False and try_reverse == True)
+    try_both = (try_normal == True and try_reverse == True)
 
     patches = [
         parse(line, target_path_str, reverse_patches)
@@ -210,11 +216,35 @@ def patcher(patch_path_str: str, target_path_str: str, forward: bool = True, rev
     ]
 
     with Path(target_path_str).open(mode='r+b', buffering=0) as target_file:
-        return apply_patches(target_file, patches, try_reverse)
+        return apply_patches(target_file, patches, try_both)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+
+    direction_limiter = parser.add_mutually_exclusive_group()
+    direction_limiter.add_argument(
+        '--normal_only',
+        dest='try_reverse',
+        action='store_false',
+    )
+    direction_limiter.add_argument(
+        '--reverse_only',
+        dest='try_normal',
+        action='store_false',
+    )
+
+    parser.add_argument(
+        '--verbose',
+        '-v',
+        action='store_true',
+    )
+    parser.add_argument(
+        '--skip_backup',
+        dest='backup',
+        action='store_false',
+    )
+
     parser.add_argument(
         '--patch',
         '-p',
@@ -229,18 +259,17 @@ if __name__ == '__main__':
         nargs='+',
         help='Filename(s) of target file(s).',
     )
-    parser.add_argument(
-        '--forward_only',
-        dest='reverse',
-        action='store_false',
-    )
-    parser.add_argument(
-        '--reverse_only',
-        dest='forward',
-        action='store_false',
-    )
 
-    logging.basicConfig(level=logging.DEBUG)
     args = parser.parse_args()
+    if args.verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
+
     for zipped in zip(args.patch, args.target):
-        patcher(*zipped, forward=args.forward, reverse=args.reverse)
+        patcher(
+            *zipped,
+            try_normal=args.try_normal,
+            try_reverse=args.try_reverse,
+            should_backup=args.backup,
+        )
