@@ -219,7 +219,7 @@ def patcher(
         return apply_patches(target_file, patches, try_both)
 
 
-if __name__ == '__main__':
+def main():
     parser = argparse.ArgumentParser()
 
     direction_limiter = parser.add_mutually_exclusive_group()
@@ -273,3 +273,7 @@ if __name__ == '__main__':
             try_reverse=args.try_reverse,
             should_backup=args.backup,
         )
+
+
+if __name__ == '__main__':
+    main()
