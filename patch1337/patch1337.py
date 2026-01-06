@@ -109,7 +109,7 @@ def apply_patches(target_file: io.FileIO, patches: list[patch_info], try_reverse
 
         [unpatched_bit] = target_file.read(1)
         logger.debug(
-            'Checking to patch 0x%X : 0x%02X > 0x%02X [now 0x%02X]' %
+            'Checking 0x%X : 0x%02X -> 0x%02X [now 0x%02X]' %
             (patch.loc, patch.fr, patch.to, unpatched_bit)
         )
 
@@ -120,8 +120,7 @@ def apply_patches(target_file: io.FileIO, patches: list[patch_info], try_reverse
             continue
 
         logger.error(
-            'Offset 0x%X was expected to be 0x%02X but was 0x%02X instead' %
-            (patch.loc, patch.fr, unpatched_bit)
+            'Unable to verify patches; stopped checking at offset 0x%X' % patch.loc
         )
         return False
 
