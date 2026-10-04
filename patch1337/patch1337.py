@@ -209,10 +209,9 @@ def patcher(
     if try_normal == False and try_reverse == False:
         return True
 
-    if not patch_path.exists() or not target_path.exists():
+    if not patch_path.exists():
         logger.error(
-            '%s or %s do not exist' %
-            (patch_path, target_path)
+            '%s does not exist' % patch_path
         )
         return False
 
