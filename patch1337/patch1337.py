@@ -286,7 +286,8 @@ def main():
         '-p',
         required=True,
         type=Path,
-        help='filename of .1337 patch',
+        nargs='+',
+        help='filename(s) of .1337 patch(es)',
     )
     parser.add_argument(
         '--target',
@@ -303,14 +304,15 @@ def main():
     else:
         logging.basicConfig(level=logging.INFO)
 
-    patcher(
-        patch_path=args.patch,
-        target_paths=args.target,
-        try_normal=args.try_normal,
-        try_reverse=args.try_reverse,
-        should_back_up=args.backup,
-        ignore_target_name=args.ignore_target_name,
-    )
+    for p in args.patch:
+        patcher(
+            patch_path=p,
+            target_paths=args.target,
+            try_normal=args.try_normal,
+            try_reverse=args.try_reverse,
+            should_back_up=args.backup,
+            ignore_target_name=args.ignore_target_name,
+        )
 
 
 if __name__ == '__main__':
