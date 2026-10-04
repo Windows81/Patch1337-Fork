@@ -177,27 +177,6 @@ def apply_patches(target_file: io.FileIO, patches: list[patch_info], try_normal:
             assert False
 
 
-def apply_patch_lines(target_path: Path, patch_lines: list[str] | None, should_back_up: bool) -> bool:
-    target_filename = normalise_target_name(target_path.name)
-
-    if patch_lines is None:
-        logger.error(
-            'the .1337 patch is not valid for the selected file (%s); skipping' % target_filename
-        )
-        return False
-
-    if should_back_up and not maybe_back_up_file(target_path):
-        return False
-
-    patches = [
-        parse_patch_line(line, target_path)
-        for line in patch_lines
-    ]
-
-    with Path(target_path).open(mode='r+b', buffering=0) as target_file:
-        return apply_patches(target_file, patches, try_normal, try_reverse)
-
-
 def patcher(
     patch_path: Path,
     target_paths: list[Path],
@@ -206,6 +185,27 @@ def patcher(
     should_back_up: bool = True,
     ignore_target_name: bool = False,
 ) -> bool:
+
+    def apply_patch_lines(target_path: Path, patch_lines: list[str] | None) -> bool:
+        target_filename = normalise_target_name(target_path.name)
+    
+        if patch_lines is None:
+            logger.error(
+                'the .1337 patch is not valid for the selected file (%s); skipping' % target_filename
+            )
+            return False
+    
+        if should_back_up and not maybe_back_up_file(target_path):
+            return False
+    
+        patches = [
+            parse_patch_line(line, target_path)
+            for line in patch_lines
+        ]
+    
+        with Path(target_path).open(mode='r+b', buffering=0) as target_file:
+            return apply_patches(target_file, patches, try_normal, try_reverse)
+            
     if try_normal == False and try_reverse == False:
         return True
 
@@ -234,7 +234,6 @@ def patcher(
         return apply_patch_lines(
             target_path=target_paths[0],
             patch_lines=next(iter(patch_data.values())),
-            should_back_up=should_back_up,
         )
 
     result = False
@@ -242,7 +241,6 @@ def patcher(
         result |= apply_patch_lines(
             target_path=target_path,
             patch_lines=patch_data.get(target_path),
-            should_back_up=should_back_up,
         )
     return result
     
