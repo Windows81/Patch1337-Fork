@@ -233,7 +233,7 @@ def patcher(
             return False
         return apply_patch_lines(
             target_path=target_paths[0],
-            patch_lines=next(patch_data.values()),
+            patch_lines=next(iter(patch_data.values())),
             should_back_up=should_back_up,
         )
 
