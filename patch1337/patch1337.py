@@ -232,7 +232,7 @@ def patcher(
             logger.error('unable to ignore target name if more than one target is specified')
             return False
         return apply_patch_lines(
-            target_path=next(target_paths),
+            target_path=target_paths[0],
             patch_lines=next(patch_data.values()),
             should_back_up=should_back_up,
         )
