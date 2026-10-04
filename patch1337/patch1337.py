@@ -190,7 +190,7 @@ def apply_patch_lines(target_path: Path, patch_lines: list[str] | None, should_b
         return False
 
     patches = [
-        parse_patch_line(line, target_path
+        parse_patch_line(line, target_path)
         for line in patch_lines
     ]
 
