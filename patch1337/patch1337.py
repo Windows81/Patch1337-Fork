@@ -13,6 +13,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+@functools.cache
 def normalise_target_name(n: str):
     return n.strip().lower()
 
@@ -238,10 +239,8 @@ def patcher(
 
     result = False
     for target_path in target_paths:
-        result |= apply_patch_lines(
-            target_path=target_path,
-            patch_lines=patch_data.get(target_path),
-        )
+        patch_lines = patch_data.get(normalise_target_name(target_path.name))
+        result |= apply_patch_lines(target_path, patch_lines)
     return result
     
 
